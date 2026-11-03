@@ -3,7 +3,7 @@
 # a thenable or a value whose `then` lookup could run user code (blink/probe_snippet.cc).
 # One browser process per page so its stderr belongs to that page alone.
 # Usage: detect.py <sample.jsonl> <out.jsonl> [concurrency]
-import asyncio, collections, json, os, re, sys, tempfile
+import asyncio, collections, json, os, re, shutil, sys, tempfile
 from playwright.async_api import async_playwright
 import harness
 
@@ -17,17 +17,22 @@ def parse(stderr_text):
         kind, site, api, value_ctor, holder_ctor, depth, doc, script, emulate = m.groups()
         events.append({'kind': kind, 'site': site, 'api': api, 'value_ctor': value_ctor,
                        'holder_ctor': holder_ctor, 'depth': int(depth),
-                       'doc': harness.scrub(doc), 'script': harness.scrub(script)})
+                       # Document URLs cut to the origin: paths can be geo-targeted.
+                       'doc': (harness.ORIGIN.match(doc) or [doc])[0], 'script': harness.scrub(script)})
     return events
 
 
 async def start_chrome(extra_args):
     profile = tempfile.mkdtemp(prefix='sr-detect-')
+    os.makedirs(os.path.join(profile, 'tmp'))
     log = tempfile.NamedTemporaryFile(prefix='sr-detect-', suffix='.log', delete=False)
     proc = await asyncio.create_subprocess_exec(
         CHROME, '--headless=new', '--remote-debugging-port=0', f'--user-data-dir={profile}',
         '--enable-logging=stderr', '--v=0', '--no-first-run', '--no-default-browser-check',
-        '--mute-audio', *extra_args, 'about:blank',
+        '--mute-audio', '--disable-component-update', '--disable-background-networking',
+        *extra_args, 'about:blank',
+        # Per-browser temp dir: downloads (e.g. components) otherwise leak into /tmp when killed.
+        env={**os.environ, 'TMPDIR': os.path.join(profile, 'tmp')},
         stdout=asyncio.subprocess.DEVNULL, stderr=log)
     for _ in range(600):
         await asyncio.sleep(0.05)
@@ -52,7 +57,7 @@ async def visit_one(p, row, extra_args, wait):
         await proc.wait()
     text = open(log_path, errors='replace').read()
     os.unlink(log_path)
-    os.system(f"rm -rf {profile} 2>/dev/null")
+    shutil.rmtree(profile, ignore_errors=True)
     events = parse(text)
     out = {k: row[k] for k in ('client', 'page', 'rank', 'stratum', 'stratum_size') if k in row}
     out.update({'status': rec.get('status'), 'error': rec.get('error'),

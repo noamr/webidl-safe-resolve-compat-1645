@@ -1,5 +1,6 @@
 #!/bin/sh
 # Installed with: git config core.hooksPath hooks
 PY=.venv/bin/python
+# out/*detect.jsonl: `page` comes from the crawl sample; live-load fields are scrubbed at capture (doc URLs cut to origin).
 [ -x "$PY" ] || PY=python3
-exec "$PY" publish_check.py --staged "--crawl=queries/**/*.csv,sample.jsonl,pilot.jsonl"
+exec "$PY" publish_check.py --staged "--crawl=queries/**/*.csv,sample.jsonl,pilot.jsonl,targeted.jsonl,out/detect.jsonl,out/targeted_detect.jsonl"
