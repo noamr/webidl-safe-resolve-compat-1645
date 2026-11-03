@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>SafePromiseResolve probe sanity</title>
+<pre id="out"></pre>
+<form name="then"></form>
+<script>
+const results = {};
+const out = (k, v) => { results[k] = v; document.getElementById('out').textContent += k + ': ' + JSON.stringify(v) + '\n'; };
+
+// 1. Conversion (a promise resolved with): ReadableStream start() return value.
+//    Old behavior runs the getter synchronously in the constructor.
+{
+  let ran = false;
+  new ReadableStream({ start() { return { get then() { ran = true; } }; } });
+  out('conversion_accessor_sync', ran);
+}
+// 2. Conversion with a Proxy.
+{
+  let trapped = false;
+  new ReadableStream({ start() { return new Proxy({}, { get(t, k) { if (k === 'then') trapped = true; return t[k]; } }); } });
+  out('conversion_proxy_sync', trapped);
+}
+// 3. Conversion with a data thenable (should be unchanged): then called in a microtask either way.
+{
+  let called = false;
+  new ReadableStream({ start() { return { then(r) { called = true; r(); } }; } });
+  out('conversion_data_thenable_sync', called);
+}
+// 4. Resolver: scheduler.postTask resolving with the callback's return value.
+//    Count microtask ticks between the end of the callback and the reaction.
+function ticksUntil(valueFactory) {
+  return new Promise(res => {
+    let n = 0, stop = false;
+    const p = scheduler.postTask(() => {
+      (function tick() { if (stop || n > 50) return; n++; queueMicrotask(tick); })();
+      return valueFactory();
+    });
+    p.then(() => { stop = true; res(n); });
+  });
+}
+(async () => {
+  const plain = await ticksUntil(() => ({}));
+  const accessor = await ticksUntil(() => ({ get then() { return undefined; } }));
+  const legacy = await ticksUntil(() => document.forms);
+  out('resolver_ticks_plain', plain);
+  out('resolver_ticks_accessor', accessor);
+  out('resolver_ticks_legacy', legacy);
+  // 5. Getter that throws: rejects (both setups), check it still rejects.
+  try { await new Promise(r => new ReadableStream({ start() { return { get then() { throw new Error('boom'); } }; }, pull() {} }) && setTimeout(r, 0)); out('throwing_getter', 'ok'); } catch (e) { out('throwing_getter', String(e)); }
+  window.__done = true;
+})();
+</script>

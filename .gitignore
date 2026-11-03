@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+out*/shots/
+*.log
+.publish-terms
+.venv/
+out/screens/

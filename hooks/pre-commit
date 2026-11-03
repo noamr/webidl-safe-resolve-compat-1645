@@ -1,0 +1,5 @@
+#!/bin/sh
+# Installed with: git config core.hooksPath hooks
+PY=.venv/bin/python
+[ -x "$PY" ] || PY=python3
+exec "$PY" publish_check.py --staged "--crawl=queries/**/*.csv,sample.jsonl,pilot.jsonl"
